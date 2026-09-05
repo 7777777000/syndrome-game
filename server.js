@@ -1,20 +1,19 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { OpenAI } = require('openai');
+const { GoogleGenAI } = require('@google/genai');
 const cors = require('cors');
 const path = require('path');
 
 const app = express();
 app.use(cors());
-app.use(express.static(path.join(__dirname))); // 같은 폴더의 index.html 자동 서빙
+app.use(express.static(path.join(__dirname)));
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const openai = new OpenAI({ 
-    apiKey: process.env.OPENAI_API_KEY 
-}); 
+// 구글 Gemini API 연동 (환경 변수에서 키를 가져옴)
+const ai = new GoogleGenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const SCENARIO = {
     character: "지능형 연쇄살인마 '스마일'",
@@ -49,16 +48,22 @@ io.on('connection', (socket) => {
         1. 모순(비명, 다툼 등)을 정확히 찌르면 'target_damage (20~40)'를 주고 오열하거나 당황하세요.
         2. 엉뚱한 질문이면 플레이어를 잔인하게 조롱하고 'player_damage (15~30)'를 주세요.
         3. 방어막이 0 이하가 되면 is_broken: true를 반환하세요.
-        응답 JSON: { "reply": "대사", "target_damage": 0~50, "player_damage": 0~50, "is_broken": false }`;
+        반드시 JSON 형식으로만 응답하세요: { "reply": "대사", "target_damage": 0~50, "player_damage": 0~50, "is_broken": false }`;
 
         try {
-            // 호환성이 가장 높고 빠른 gpt-4o-mini 모델로 변경
-            const comp = await openai.chat.completions.create({
-                model: "gpt-4o-mini", 
-                response_format: { type: "json_object" },
-                messages: [{ role: "system", content: systemPrompt }, ...room.history, { role: "user", content: message }]
+            let contents = [{ role: 'user', parts: [{ text: systemPrompt + "\n\n[대화 시작]" }] }];
+            for (let h of room.history) {
+                contents.push({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.content }] });
+            }
+            contents.push({ role: 'user', parts: [{ text: message }] });
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: contents,
+                config: { responseMimeType: 'application/json' }
             });
-            const data = JSON.parse(comp.choices[0].message.content);
+
+            const data = JSON.parse(response.text());
             
             room.history.push({ role: "user", content: message }, { role: "assistant", content: data.reply });
             room.targetShield = Math.max(0, room.targetShield - (data.target_damage || 0));
