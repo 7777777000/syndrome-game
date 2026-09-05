@@ -12,7 +12,6 @@ app.use(express.static(path.join(__dirname))); // 같은 폴더의 index.html �
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// 🔑 깃허브 보안 차단을 피하기 위해 렌더 환경 변수(process.env)로 안전하게 설정
 const openai = new OpenAI({ 
     apiKey: process.env.OPENAI_API_KEY 
 }); 
@@ -53,8 +52,10 @@ io.on('connection', (socket) => {
         응답 JSON: { "reply": "대사", "target_damage": 0~50, "player_damage": 0~50, "is_broken": false }`;
 
         try {
+            // 호환성이 가장 높고 빠른 gpt-4o-mini 모델로 변경
             const comp = await openai.chat.completions.create({
-                model: "gpt-4-turbo", response_format: { type: "json_object" },
+                model: "gpt-4o-mini", 
+                response_format: { type: "json_object" },
                 messages: [{ role: "system", content: systemPrompt }, ...room.history, { role: "user", content: message }]
             });
             const data = JSON.parse(comp.choices[0].message.content);
