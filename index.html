@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>SYNDROME: FINAL DIVE</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Noto+Sans+KR:wght@700&display=swap');
+    :root { --cyan: #00e5ff; --red: #ff003c; --bg: #020202; }
+    body, html { margin: 0; height: 100%; background: var(--bg); color: #fff; font-family: 'Noto Sans KR', sans-serif; overflow: hidden; }
+    
+    .crt::before { content: " "; position: absolute; inset: 0; background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%), linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06)); background-size: 100% 2px, 3px 100%; z-index: 100; pointer-events: none; }
+    
+    #lobby { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; }
+    #lobby h1 { font-family: 'Chakra Petch', sans-serif; font-size: 6rem; color: var(--red); text-shadow: 0 0 40px var(--red); margin-bottom: 30px; letter-spacing: -2px; }
+    .lobby-box { display: flex; gap: 10px; }
+    .lobby-box input { padding: 15px; font-size: 1.5rem; background: #000; border: 2px solid var(--red); color: #fff; outline: none; }
+    .start-btn { padding: 15px 40px; background: var(--red); color: #000; font-size: 1.5rem; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; }
+    .start-btn:hover { background: #fff; box-shadow: 0 0 30px var(--red); }
+
+    #gameScreen { display: none; height: 100%; position: relative; padding: 20px; box-sizing: border-box; }
+    #bgImage { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.15; filter: grayscale(1); z-index: -1; }
+    .grid-layout { display: grid; grid-template-columns: 1fr 350px; grid-template-rows: 1fr auto; gap: 20px; height: 100%; }
+    
+    .chat-area { grid-column: 1 / 2; grid-row: 1 / 2; border: 1px solid #333; background: rgba(0,0,0,0.7); padding: 30px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+    .msg { font-size: 1.3rem; line-height: 1.6; max-width: 80%; padding: 15px 20px; border-radius: 4px; animation: slideUp 0.3s; }
+    .msg.player { align-self: flex-end; background: rgba(0, 229, 255, 0.1); border-right: 4px solid var(--cyan); color: #e0f7fa; }
+    .msg.ai { align-self: flex-start; background: rgba(255, 0, 60, 0.1); border-left: 4px solid var(--red); color: #ffcdd2; }
+    .msg.sys { align-self: center; color: var(--cyan); background: none; border: none; font-family: 'Chakra Petch', sans-serif; }
+
+    .status-area { grid-column: 2 / 3; grid-row: 1 / 3; display: flex; flex-direction: column; gap: 30px; padding: 20px; border: 1px solid #333; background: rgba(0,0,0,0.8); }
+    .hp-box h2 { margin: 0 0 10px 0; font-family: 'Chakra Petch', sans-serif; font-size: 1.5rem; display: flex; justify-content: space-between; }
+    .target-title { color: var(--cyan); } .player-title { color: var(--red); }
+    .bar-bg { height: 25px; background: #111; border: 1px solid #444; width: 100%; }
+    .bar-fill { height: 100%; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    #targetBar { background: var(--cyan); width: 100%; box-shadow: 0 0 15px var(--cyan); }
+    #playerBar { background: var(--red); width: 100%; box-shadow: 0 0 15px var(--red); }
+
+    .input-area { grid-column: 1 / 2; grid-row: 2 / 3; display: flex; gap: 15px; align-items: stretch; }
+    .input-area input { flex: 1; background: rgba(0,0,0,0.8); border: 2px solid #333; color: #fff; font-size: 1.5rem; padding: 0 20px; outline: none; }
+    .input-area button { padding: 0 40px; font-size: 1.5rem; font-weight: bold; border: none; cursor: pointer; }
+    #sendBtn { background: #fff; color: #000; } #sendBtn:hover { background: var(--cyan); }
+    #voiceBtn { background: #111; color: var(--cyan); border: 1px solid var(--cyan); }
+    #voiceBtn.recording { background: var(--red); color: #fff; border-color: var(--red); box-shadow: 0 0 20px var(--red); }
+
+    #impactLayer { position: absolute; inset: 0; z-index: 1000; pointer-events: none; display: flex; justify-content: center; align-items: center; opacity: 0; }
+    #impactText { font-family: 'Chakra Petch', sans-serif; font-size: 8rem; font-weight: 900; font-style: italic; transform: scale(3) rotate(-5deg); opacity: 0; }
+
+    #phase2Screen { display: none; position: absolute; inset: 0; z-index: 2000; background: #000; flex-direction: column; justify-content: center; align-items: center; }
+    #phase2Screen h1 { font-family: 'Chakra Petch', sans-serif; color: var(--red); font-size: 6rem; animation: glitch 0.2s infinite; }
+
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes screenShake { 0%, 100% { transform: translate(0,0); } 25% { transform: translate(-20px, 20px); } 50% { transform: translate(20px, -20px); } 75% { transform: translate(-20px, -20px); } }
+    @keyframes smashImpact { 0% { transform: scale(3) rotate(-5deg); opacity: 0; } 10% { transform: scale(1) rotate(-5deg); opacity: 1; text-shadow: 0 0 50px currentColor; } 90% { transform: scale(1) rotate(-5deg); opacity: 1; } 100% { transform: scale(0.5); opacity: 0; } }
+    @keyframes glitch { 0% { transform: translate(0); } 20% { transform: translate(-5px, 5px); } 40% { transform: translate(5px, -5px); } }
+    .shake-hard { animation: screenShake 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+    .damage-red { filter: drop-shadow(0 0 50px var(--red)) saturate(3) invert(0.2); }
+    .damage-cyan { filter: drop-shadow(0 0 50px var(--cyan)) saturate(3); }
+</style>
+</head>
+<body class="crt" id="mainBody">
+
+<div id="lobby">
+    <h1>SYNDROME</h1>
+    <div class="lobby-box">
+        <input type="text" id="playerName" placeholder="요원 닉네임" required>
+        <button class="start-btn" onclick="startGame()">DIVE</button>
+    </div>
+</div>
+
+<div id="gameScreen">
+    <img id="bgImage" src="https://images.unsplash.com/photo-1629235966453-62541a4a0db8?auto=format&fit=crop&w=1600">
+    <div class="grid-layout">
+        <div class="chat-area" id="chatBox"></div>
+        <div class="status-area">
+            <div class="hp-box">
+                <h2 class="target-title"><span>TARGET SHIELD</span><span id="targetTxt">100%</span></h2>
+                <div class="bar-bg"><div class="bar-fill" id="targetBar"></div></div>
+            </div>
+            <div class="hp-box">
+                <h2 class="player-title"><span>AGENT SANITY</span><span id="playerTxt">100%</span></h2>
+                <div class="bar-bg"><div class="bar-fill" id="playerBar"></div></div>
+            </div>
+        </div>
+        <div class="input-area">
+            <button id="voiceBtn" onmousedown="startVoice()" onmouseup="stopVoice()">🎤 HOLD</button>
+            <input type="text" id="chatInput" placeholder="추궁할 내용을 입력하십시오..." onkeypress="if(event.key==='Enter') sendMessage()">
+            <button onclick="sendMessage()" id="sendBtn">STRIKE</button>
+        </div>
+    </div>
+</div>
+
+<div id="impactLayer"><div id="impactText"></div></div>
+<div id="phase2Screen"><h1 id="p2Title">EGO RESTRAINT REMOVED</h1></div>
+
+<script>
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioContext();
+    function playStrike(type) {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        if (type === 'critical') {
+            osc.type = 'square'; osc.frequency.setValueAtTime(100, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.5);
+            gain.gain.setValueAtTime(0.5, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+        } else {
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(800, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0.4, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+        }
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition;
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition(); recognition.lang = 'ko-KR';
+        recognition.onresult = (e) => {
+            document.getElementById('chatInput').value = e.results[0][0].transcript;
+            document.getElementById('voiceBtn').classList.remove('recording');
+            sendMessage();
+        };
+    }
+    function startVoice() { if(recognition) { document.getElementById('voiceBtn').classList.add('recording'); recognition.start(); } }
+    function stopVoice() { if(recognition) recognition.stop(); }
+
+    const socket = io();
+    let myName = "";
+    
+    function startGame() {
+        myName = document.getElementById('playerName').value.trim() || "익명요원";
+        audioCtx.resume();
+        socket.emit('joinRoom', { roomId: 'ROOM_X', playerName: myName });
+        document.getElementById('lobby').style.display = 'none'; document.getElementById('gameScreen').style.display = 'block';
+    }
+
+    function sendMessage() {
+        const input = document.getElementById('chatInput');
+        if(!input.value.trim()) return;
+        socket.emit('interrogate', { roomId: 'ROOM_X', playerName: myName, message: input.value.trim() });
+        input.value = ''; input.disabled = true;
+    }
+
+    socket.on('systemMessage', (msg) => {
+        document.getElementById('chatBox').innerHTML += `<div class="msg sys">${msg}</div>`;
+    });
+
+    socket.on('playerMessage', (data) => {
+        const box = document.getElementById('chatBox');
+        box.innerHTML += `<div class="msg player"><span>[${data.playerName}]</span> ${data.message}</div>`;
+        box.scrollTop = box.scrollHeight;
+    });
+
+    socket.on('aiTyping', (isTyping) => {
+        if(!isTyping) { document.getElementById('chatInput').disabled = false; document.getElementById('chatInput').focus(); }
+    });
+
+    socket.on('aiResponse', (data) => {
+        const box = document.getElementById('chatBox');
+        box.innerHTML += `<div class="msg ai">${data.reply}</div>`;
+        box.scrollTop = box.scrollHeight;
+
+        const body = document.getElementById('mainBody');
+        const impactLayer = document.getElementById('impactLayer');
+        const impactText = document.getElementById('impactText');
+
+        if (data.target_damage > 0) {
+            playStrike('critical'); body.classList.add('shake-hard', 'damage-cyan');
+            impactText.innerText = "CONTRADICTION!"; impactText.style.color = "var(--cyan)";
+            impactLayer.style.opacity = 1; impactText.style.animation = "smashImpact 0.6s forwards";
+            setTimeout(() => { body.classList.remove('shake-hard', 'damage-cyan'); impactLayer.style.opacity = 0; impactText.style.animation = "none"; }, 600);
+        } else if (data.player_damage > 0) {
+            playStrike('damage'); body.classList.add('shake-hard', 'damage-red');
+            impactText.innerText = "SANITY DROP"; impactText.style.color = "var(--red)";
+            impactLayer.style.opacity = 1; impactText.style.animation = "smashImpact 0.5s forwards";
+            setTimeout(() => { body.classList.remove('shake-hard', 'damage-red'); impactLayer.style.opacity = 0; impactText.style.animation = "none"; }, 500);
+        }
+
+        document.getElementById('targetBar').style.width = `${Math.max(0, data.targetShield)}%`; document.getElementById('targetTxt').innerText = `${Math.max(0, data.targetShield)}%`;
+        document.getElementById('playerBar').style.width = `${Math.max(0, data.playerSanity)}%`; document.getElementById('playerTxt').innerText = `${Math.max(0, data.playerSanity)}%`;
+
+        if (data.playerSanity <= 0) setTimeout(() => { alert("SANITY 0%. 정신 붕괴."); location.reload(); }, 1000);
+        if (data.phase === 2) {
+            setTimeout(() => {
+                document.getElementById('phase2Screen').style.display = 'flex';
+                setInterval(() => { document.getElementById('p2Title').innerText = Math.random() > 0.5 ? "SYSTEM CORRUPTED" : "I SEE YOU"; }, 100);
+            }, 1500);
+        }
+    });
+</script>
+</body>
+</html>
